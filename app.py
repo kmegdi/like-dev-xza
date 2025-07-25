@@ -120,9 +120,9 @@ def enc(uid):
 
 def make_request(encrypt, server_name, token):
     try:
-        if server_name == "ME":
-            url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
-        elif server_name in {"BR", "US", "SAC", "NA"}:
+        if server_name == "IND":
+            url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
+        elif server_name in {"BR", "US", "SAC", "ME"}:
             url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
         else:
             url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
@@ -195,7 +195,7 @@ def handle_requests():
 
             if server_name == "IND":
                 url = "https://client.ind.freefiremobile.com/LikeProfile"
-            elif server_name in {"BR", "US", "SAC", "ME"}:
+            elif server_name in {"BR", "US", "SAC", "NA"}:
                 url = "https://client.us.freefiremobile.com/LikeProfile"
             else:
                 url = "https://clientbp.ggblueshark.com/LikeProfile"
@@ -221,8 +221,7 @@ def handle_requests():
                 "LikesafterCommand": after_like,
                 "PlayerNickname": player_name,
                 "UID": player_uid,
-                "status": status,
-                "credit": "Credit by DeV-Xzanja - Ob49"
+                "status": status
             }
             return result
 
