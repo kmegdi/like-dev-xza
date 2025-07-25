@@ -7,6 +7,7 @@ import binascii
 import aiohttp
 import requests
 import json
+import os
 import like_pb2
 import like_count_pb2
 import uid_generator_pb2
@@ -81,16 +82,13 @@ async def send_multiple_requests(uid, server_name, url):
         region = server_name
         protobuf_message = create_protobuf_message(uid, region)
         if protobuf_message is None:
-            app.logger.error("Failed to create protobuf message.")
             return None
         encrypted_uid = encrypt_message(protobuf_message)
         if encrypted_uid is None:
-            app.logger.error("Encryption failed.")
             return None
         tasks = []
         tokens = load_tokens(server_name)
         if tokens is None:
-            app.logger.error("Failed to load tokens.")
             return None
         for i in range(100):
             token = tokens[i % len(tokens)]["token"]
@@ -121,7 +119,7 @@ def enc(uid):
 def make_request(encrypt, server_name, token):
     try:
         if server_name == "ME":
-            url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow
+            url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
         elif server_name in {"BR", "US", "SAC", "ME"}:
             url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
         else:
@@ -142,8 +140,6 @@ def make_request(encrypt, server_name, token):
         hex_data = response.content.hex()
         binary = bytes.fromhex(hex_data)
         decode = decode_protobuf(binary)
-        if decode is None:
-            app.logger.error("Protobuf decoding returned None.")
         return decode
     except Exception as e:
         app.logger.error(f"Error in make_request: {e}")
@@ -181,17 +177,9 @@ def handle_requests():
             before = make_request(encrypted_uid, server_name, token)
             if before is None:
                 raise Exception("Failed to retrieve initial player info.")
-            try:
-                jsone = MessageToJson(before)
-            except Exception as e:
-                raise Exception(f"Error converting 'before' protobuf to JSON: {e}")
-            data_before = json.loads(jsone)
-            before_like = data_before.get('AccountInfo', {}).get('Likes', 0)
-            try:
-                before_like = int(before_like)
-            except Exception:
-                before_like = 0
-            app.logger.info(f"Likes before command: {before_like}")
+
+            data_before = json.loads(MessageToJson(before))
+            before_like = int(data_before.get('AccountInfo', {}).get('Likes', 0))
 
             if server_name == "ME":
                 url = "https://clientbp.ggblueshark.com/LikeProfile"
@@ -205,16 +193,15 @@ def handle_requests():
             after = make_request(encrypted_uid, server_name, token)
             if after is None:
                 raise Exception("Failed to retrieve player info after like requests.")
-            try:
-                jsone_after = MessageToJson(after)
-            except Exception as e:
-                raise Exception(f"Error converting 'after' protobuf to JSON: {e}")
-            data_after = json.loads(jsone_after)
+            data_after = json.loads(MessageToJson(after))
+
             after_like = int(data_after.get('AccountInfo', {}).get('Likes', 0))
             player_uid = int(data_after.get('AccountInfo', {}).get('UID', 0))
             player_name = str(data_after.get('AccountInfo', {}).get('PlayerNickname', ''))
+
             like_given = after_like - before_like
             status = 1 if like_given != 0 else 2
+
             result = {
                 "LikesGivenByAPI": like_given,
                 "LikesbeforeCommand": before_like,
@@ -232,4 +219,4 @@ def handle_requests():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
