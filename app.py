@@ -7,6 +7,7 @@ import binascii
 import aiohttp
 import requests
 import json
+import os
 import like_pb2
 import like_count_pb2
 import uid_generator_pb2
@@ -19,7 +20,7 @@ def load_tokens(server_name):
         if server_name == "ME":
             with open("token_me.json", "r") as f:
                 tokens = json.load(f)
-        elif server_name in {"BR", "US", "SAC", "ME"}:
+        elif server_name in {"BR", "US", "SAC", "NA"}:
             with open("token_br.json", "r") as f:
                 tokens = json.load(f)
         else:
@@ -47,8 +48,6 @@ def create_protobuf_message(user_id, region):
         message = like_pb2.like()
         message.uid = int(user_id)
         message.region = region
-        if hasattr(message, 'ob_version'):
-            message.ob_version = "OB48"
         return message.SerializeToString()
     except Exception as e:
         app.logger.error(f"Error creating protobuf message: {e}")
@@ -66,14 +65,13 @@ async def send_request(encrypted_uid, token, url):
             'Expect': "100-continue",
             'X-Unity-Version': "2018.4.11f1",
             'X-GA': "v1 1",
-            'ReleaseVersion': "OB50" #Fixed
+            'ReleaseVersion': "OB50"
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=edata, headers=headers) as response:
                 if response.status != 200:
-                    text = await response.text()
-                    app.logger.error(f"Request failed with status code: {response.status} and response: {text}")
-                    return None
+                    app.logger.error(f"Request failed with status code: {response.status}")
+                    return response.status
                 return await response.text()
     except Exception as e:
         app.logger.error(f"Exception in send_request: {e}")
@@ -84,16 +82,13 @@ async def send_multiple_requests(uid, server_name, url):
         region = server_name
         protobuf_message = create_protobuf_message(uid, region)
         if protobuf_message is None:
-            app.logger.error("Failed to create protobuf message.")
             return None
         encrypted_uid = encrypt_message(protobuf_message)
         if encrypted_uid is None:
-            app.logger.error("Encryption failed.")
             return None
         tasks = []
         tokens = load_tokens(server_name)
         if tokens is None:
-            app.logger.error("Failed to load tokens.")
             return None
         for i in range(100):
             token = tokens[i % len(tokens)]["token"]
@@ -109,9 +104,6 @@ def create_protobuf(uid):
         message = uid_generator_pb2.uid_generator()
         message.saturn_ = int(uid)
         message.garena = 1
- 
-        if hasattr(message, 'ob_version'):
-            message.ob_version = "OB50"
         return message.SerializeToString()
     except Exception as e:
         app.logger.error(f"Error creating uid protobuf: {e}")
@@ -145,13 +137,9 @@ def make_request(encrypt, server_name, token):
             'ReleaseVersion': "OB50"
         }
         response = requests.post(url, data=edata, headers=headers, verify=False)
-        if response.status_code != 200:
-            app.logger.error(f"Request failed with status code: {response.status_code} and response: {response.text}")
-            return None
-        binary = response.content
+        hex_data = response.content.hex()
+        binary = bytes.fromhex(hex_data)
         decode = decode_protobuf(binary)
-        if decode is None:
-            app.logger.error("Protobuf decoding returned None.")
         return decode
     except Exception as e:
         app.logger.error(f"Error in make_request: {e}")
@@ -189,21 +177,13 @@ def handle_requests():
             before = make_request(encrypted_uid, server_name, token)
             if before is None:
                 raise Exception("Failed to retrieve initial player info.")
-            try:
-                jsone = MessageToJson(before)
-            except Exception as e:
-                raise Exception(f"Error converting 'before' protobuf to JSON: {e}")
-            data_before = json.loads(jsone)
-            before_like = data_before.get('AccountInfo', {}).get('Likes', 0)
-            try:
-                before_like = int(before_like)
-            except Exception:
-                before_like = 0
-            app.logger.info(f"Likes before command: {before_like}")
+
+            data_before = json.loads(MessageToJson(before))
+            before_like = int(data_before.get('AccountInfo', {}).get('Likes', 0))
 
             if server_name == "ME":
-                url = "https://client.ind.freefiremobile.com/LikeProfile"
-            elif server_name in {"BR", "US", "ME", "ME"}:
+                url = "https://clientbp.ggblueshark.com/LikeProfile"
+            elif server_name in {"BR", "US", "SAC", "ME"}:
                 url = "https://client.us.freefiremobile.com/LikeProfile"
             else:
                 url = "https://clientbp.ggblueshark.com/LikeProfile"
@@ -213,20 +193,19 @@ def handle_requests():
             after = make_request(encrypted_uid, server_name, token)
             if after is None:
                 raise Exception("Failed to retrieve player info after like requests.")
-            try:
-                jsone_after = MessageToJson(after)
-            except Exception as e:
-                raise Exception(f"Error converting 'after' protobuf to JSON: {e}")
-            data_after = json.loads(jsone_after)
+            data_after = json.loads(MessageToJson(after))
+
             after_like = int(data_after.get('AccountInfo', {}).get('Likes', 0))
             player_uid = int(data_after.get('AccountInfo', {}).get('UID', 0))
             player_name = str(data_after.get('AccountInfo', {}).get('PlayerNickname', ''))
+
             like_given = after_like - before_like
             status = 1 if like_given != 0 else 2
+
             result = {
                 "LikesGivenByAPI": like_given,
-                "LikesafterCommand": after_like,
                 "LikesbeforeCommand": before_like,
+                "LikesafterCommand": after_like,
                 "PlayerNickname": player_name,
                 "UID": player_uid,
                 "status": status
@@ -240,4 +219,4 @@ def handle_requests():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
